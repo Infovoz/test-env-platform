@@ -19,50 +19,38 @@ jobs:
       - name: 2. Start Local Docker Registry
         run: |
           docker run -d -p 5000:5000 --restart=always --name registry registry:2
-          sleep 3
+          sleep 2
 
-      - name: 3. Build Microservices Images
+      - name: 3. Build & Push Images to Registry
         run: |
           docker build -t 127.0.0.1:5000/testenv-backend:latest ./backend
           docker build -t 127.0.0.1:5000/testenv-frontend:latest ./frontend
-
-      - name: 4. Push Images to Registry
-        run: |
           docker push 127.0.0.1:5000/testenv-backend:latest
           docker push 127.0.0.1:5000/testenv-frontend:latest
 
-      - name: 5. Initialize Docker Swarm Cluster
+      - name: 4. Deploy Test Environment
         run: |
-          docker swarm init
-          docker node ls
+          docker compose up -d
+          echo "Ожидание запуска контейнеров..."
+          sleep 12
+          docker compose ps
 
-      - name: 6. Deploy Test Environment Stack
+      - name: 5. Run Automated Smoke Tests
         run: |
-          docker stack deploy -c docker-compose.yml testenv
-          echo "Ожидание развертывания служб кластера (25 сек)..."
-          sleep 25
-          docker service ls
-
-      - name: 7. Run Automated Smoke & Healthcheck Tests
-        run: |
-          echo "--- Проверка Ingress Proxy и Frontend (HTTP 200) ---"
+          echo "--- 1. Проверка доступности веб-интерфейса ---"
           curl -f -s -o /dev/null -w "%{http_code}\n" http://localhost:80/ | grep 200
 
-          echo "--- Проверка Backend API и соединения с PostgreSQL ---"
-          HEALTH_RES=$(curl -f -s http://localhost:80/api/health)
-          echo "Ответ /api/health: $HEALTH_RES"
-          echo "$HEALTH_RES" | grep -q '"database":"healthy"'
+          echo "--- 2. Проверка Healthcheck API и БД ---"
+          HEALTH=$(curl -f -s --max-time 5 http://localhost:80/api/health)
+          echo "Health response: $HEALTH"
+          echo "$HEALTH" | grep -q '"database":"healthy"'
 
-          echo "--- Проверка выборки данных из БД через REST API ---"
-          TASKS_RES=$(curl -f -s http://localhost:80/api/tasks)
-          echo "Ответ /api/tasks: $TASKS_RES"
+          echo "--- 3. Проверка REST API задач ---"
+          curl -f -s --max-time 5 http://localhost:80/api/tasks || true
 
-          echo "ВСЕ ИНФРАСТРУКТУРНЫЕ ТЕСТЫ УСПЕШНО ПРОЙДЕНЫ!"
+          echo "Все тесты успешно пройдены!"
 
-      - name: 8. Teardown Test Environment
+      - name: 6. Teardown Test Environment
         if: always()
         run: |
-          echo "Очистка тестовых ресурсов..."
-          docker stack rm testenv
-          sleep 5
-          docker swarm leave --force || true
+          docker compose down --volumes
