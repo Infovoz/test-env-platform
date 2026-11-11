@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # 1. Локальный реестр образов для сборок тестовых сред
+  registry:
+    image: registry:2
+    ports:
+      - "5000:5000"
+    networks:
+      - testnet
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # 2. Пограничный маршрутизатор (Ingress Proxy)
+  proxy:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend/index.html:/usr/share/nginx/html/index.html:ro
+    networks:
+      - testnet
+    depends_on:
+      - frontend
+      - backend
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        
+  # 3. База данных тестового стенда (PostgreSQL)
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./infra/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - testnet
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # 4. Серверный API тестовой среды (FastAPI)
+  backend:
+    image: 127.0.0.1:5000/testenv-backend:latest
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: testdb
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      ENV_NAME: preview-feature-pr42
+    networks:
+      - testnet
+    depends_on:
+      - db
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # 5. Веб-интерфейс тестовой среды (Nginx)
+  frontend:
+    image: 127.0.0.1:5000/testenv-frontend:latest
+    networks:
+      - testnet
+    depends_on:
+      - backend
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  db_data:
+
+networks:
+  testnet:
+    driver: overlay
+    attachable: true

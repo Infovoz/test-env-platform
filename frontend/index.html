@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Панель тестовой среды разработчика</title>
+    <style>
+        :root { --primary: #2563eb; --bg: #0f172a; --card-bg: #1e293b; --text: #f8fafc; --text-muted: #94a3b8; --success: #22c55e; --border: #334155; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: var(--bg); color: var(--text); padding: 2rem; line-height: 1.5; }
+        .container { max-width: 900px; margin: 0 auto; }
+        header { margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; }
+        h1 { font-size: 1.75rem; color: #fff; }
+        .badge { background: #1e3a8a; color: #93c5fd; padding: 0.35rem 0.8rem; border-radius: 9999px; font-size: 0.85rem; font-weight: 600; border: 1px solid #3b82f6; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 2rem; }
+        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+        .card h2 { font-size: 1.15rem; margin-bottom: 0.75rem; color: #e2e8f0; }
+        .status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--success); margin-right: 6px; }
+        .task-list { list-style: none; margin-top: 1rem; }
+        .task-item { background: #0f172a; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 0.5rem; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .btn { background: var(--primary); color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 500; }
+        input[type="text"] { background: #0f172a; border: 1px solid var(--border); color: #fff; padding: 0.5rem 0.75rem; border-radius: 6px; width: 70%; margin-right: 0.5rem; }
+        .form-row { display: flex; margin-top: 1rem; }
+        pre { background: #0b1120; padding: 1rem; border-radius: 8px; font-size: 0.85rem; color: #38bdf8; overflow-x: auto; margin-top: 0.5rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>Тестовая среда (Preview Environment)</h1>
+                <p style="color: var(--text-muted); font-size: 0.9rem;">Инфраструктура автоматического развертывания стендов</p>
+            </div>
+            <div class="badge" id="envBadge">ENV: preview-branch</div>
+        </header>
+
+        <div class="grid">
+            <div class="card">
+                <h2><span class="status-indicator"></span> Статус микросервисов</h2>
+                <div style="margin-top: 0.8rem; font-size: 0.95rem;">
+                    <div>• <b>Frontend:</b> <span style="color: var(--success);">Online (Nginx)</span></div>
+                    <div>• <b>Backend API:</b> <span id="backendStatus">Опрос...</span></div>
+                    <div>• <b>PostgreSQL DB:</b> <span id="dbStatus">Опрос...</span></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Параметры окружения</h2>
+                <div style="margin-top: 0.8rem; font-size: 0.95rem;">
+                    <div>• <b>Кластер:</b> Docker Swarm Overlay</div>
+                    <div>• <b>Маршрутизация:</b> Traefik Ingress Router</div>
+                    <div>• <b>Реестр образов:</b> Docker Registry v2</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom: 2rem;">
+            <h2>Тестовые данные из базы (CRUD проверка)</h2>
+            <div class="form-row">
+                <input type="text" id="taskTitle" placeholder="Введите название тестовой задачи...">
+                <button class="btn" onclick="addTask()">Добавить в БД</button>
+            </div>
+            <ul class="task-list" id="taskList">
+                <li class="task-item" style="color: var(--text-muted);">Загрузка тестовых записей...</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <h2>Ответ Healthcheck API (/health)</h2>
+            <pre id="rawJson">Ожидание данных от бэкенда...</pre>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = '/api';
+
+        async function fetchHealth() {
+            try {
+                const res = await fetch(`${API_URL}/health`);
+                const data = await res.json();
+                document.getElementById('backendStatus').innerHTML = `<span style="color: #22c55e;">${data.status}</span>`;
+                document.getElementById('dbStatus').innerHTML = `<span style="color: #22c55e;">${data.database}</span>`;
+                document.getElementById('envBadge').innerText = `ENV: ${data.environment}`;
+                document.getElementById('rawJson').innerText = JSON.stringify(data, null, 2);
+            } catch (err) {
+                document.getElementById('backendStatus').innerHTML = `<span style="color: #ef4444;">Offline</span>`;
+                document.getElementById('dbStatus').innerHTML = `<span style="color: #ef4444;">Disconnected</span>`;
+            }
+        }
+
+        async function loadTasks() {
+            try {
+                const res = await fetch(`${API_URL}/tasks`);
+                const data = await res.json();
+                const list = document.getElementById('taskList');
+                if (data.tasks && data.tasks.length > 0) {
+                    list.innerHTML = data.tasks.map(t => `
+                        <li class="task-item">
+                            <span><b>#${t.id}</b> ${t.title}</span>
+                            <span style="font-size: 0.8rem; color: #94a3b8;">${t.status}</span>
+                        </li>
+                    `).join('');
+                }
+            } catch (err) {
+                document.getElementById('taskList').innerHTML = `<li class="task-item" style="color: #ef4444;">Ошибка БД</li>`;
+            }
+        }
+
+        async function addTask() {
+            const input = document.getElementById('taskTitle');
+            const title = input.value.trim();
+            if (!title) return;
+            try {
+                await fetch(`${API_URL}/tasks`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, description: "Создано из тестового веб-интерфейса" })
+                });
+                input.value = '';
+                loadTasks();
+            } catch (err) {
+                alert("Ошибка добавления");
+            }
+        }
+
+        fetchHealth();
+        loadTasks();
+        setInterval(fetchHealth, 10000);
+    </script>
+</body>
+</html>
